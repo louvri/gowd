@@ -17,22 +17,26 @@ type Client struct {
 // New returns a new Client object using datadog.
 // serviceName will be used as prefix at each metric.
 func New(host, namespace, serviceName string, port int, enabled bool) *Client {
-	url := fmt.Sprintf("%s:%d", host, port)
+	if enabled {
+		url := fmt.Sprintf("%s:%d", host, port)
 
-	var statsDClient *statsd.Client
-	var err error
-	if namespace == "" {
-		statsDClient, err = statsd.New(url)
+		var statsDClient *statsd.Client
+		var err error
+		if namespace == "" {
+			statsDClient, err = statsd.New(url)
+		} else {
+			statsDClient, err = statsd.New(url, statsd.WithNamespace(namespace))
+		}
+		if err != nil {
+			log.Fatalf("error starting datadog client: %s\n", err)
+		}
+		return &Client{
+			Client:      statsDClient,
+			Enabled:     enabled,
+			ServiceName: serviceName,
+		}
 	} else {
-		statsDClient, err = statsd.New(url, statsd.WithNamespace(namespace))
-	}
-	if err != nil {
-		log.Fatalf("error starting datadog client: %s\n", err)
-	}
-	return &Client{
-		Client:      statsDClient,
-		Enabled:     enabled,
-		ServiceName: serviceName,
+		return &Client{}
 	}
 }
 
