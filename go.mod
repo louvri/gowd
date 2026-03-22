@@ -1,6 +1,6 @@
 module github.com/louvri/gowd
 
-go 1.20
+go 1.25.0
 
 require github.com/DataDog/datadog-go/v5 v5.6.0
 

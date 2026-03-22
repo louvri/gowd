@@ -1,11 +1,13 @@
 package metric
 
 import (
-	"github.com/louvri/gowd/metric/datadog"
 	"time"
+
+	"github.com/louvri/gowd/metric/datadog"
 )
 
 type ClientInterface interface {
+	Close() error
 	DisableMetric()
 	EnableMetric()
 	Count(blockName string, value int64, tags []string)
@@ -14,6 +16,10 @@ type ClientInterface interface {
 	IncrementError(blockName string, tags []string)
 	Decrement(blockName string, tags []string)
 	DecrementError(blockName string, tags []string)
+	Gauge(blockName string, value float64, tags []string)
+	GaugeError(blockName string, value float64, tags []string)
+	Histogram(blockName string, value float64, tags []string)
+	HistogramError(blockName string, value float64, tags []string)
 	Timing(blockName string, value time.Duration, tags []string)
 	TimingError(blockName string, value time.Duration, tags []string)
 }
