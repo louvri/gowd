@@ -2,41 +2,38 @@ package datadog
 
 import (
 	"fmt"
-	"github.com/DataDog/datadog-go/v5/statsd"
-	"log"
 	"os"
 	"time"
+
+	"github.com/DataDog/datadog-go/v5/statsd"
 )
 
 type Client struct {
-	Client      *statsd.Client
-	Enabled     bool
-	ServiceName string
+	client      *statsd.Client
+	enabled     bool
+	serviceName string
 }
 
 // New returns a new Client object using datadog.
 // serviceName will be used as prefix at each metric.
 func New(host, namespace, serviceName string, port int, enabled bool) *Client {
-	if enabled {
-		url := fmt.Sprintf("%s:%d", host, port)
-
-		var statsDClient *statsd.Client
-		var err error
-		if namespace == "" {
-			statsDClient, err = statsd.New(url)
-		} else {
-			statsDClient, err = statsd.New(url, statsd.WithNamespace(namespace))
-		}
-		if err != nil {
-			log.Fatalf("error starting datadog client: %s\n", err)
-		}
-		return &Client{
-			Client:      statsDClient,
-			Enabled:     enabled,
-			ServiceName: serviceName,
-		}
-	} else {
+	if !enabled {
 		return &Client{}
+	}
+	addr := fmt.Sprintf("%s:%d", host, port)
+	opts := []statsd.Option{}
+	if namespace != "" {
+		opts = append(opts, statsd.WithNamespace(namespace))
+	}
+	client, err := statsd.New(addr, opts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gowd: error starting datadog client: %s\n", err)
+		return &Client{}
+	}
+	return &Client{
+		client:      client,
+		enabled:     enabled,
+		serviceName: serviceName,
 	}
 }
 
@@ -46,76 +43,112 @@ func Default(namespace, serviceName string) *Client {
 	return New(os.Getenv("DD_AGENT_HOST"), namespace, serviceName, 8125, true)
 }
 
-// DisableMetric set monitor to be disabled, it will stop sending metrics to datadog
+func (c *Client) metricName(blockName string) string {
+	return fmt.Sprintf("%s.%s", c.serviceName, blockName)
+}
+
+func (c *Client) errorMetricName(blockName string) string {
+	return fmt.Sprintf("%s.%s.error", c.serviceName, blockName)
+}
+
+// Close flushes buffered metrics and closes the underlying client.
+func (c *Client) Close() error {
+	if c.client != nil {
+		return c.client.Close()
+	}
+	return nil
+}
+
+// DisableMetric stops sending metrics to datadog.
 func (c *Client) DisableMetric() {
-	c.Enabled = false
+	c.enabled = false
 }
 
-// EnableMetric set monitor to be enabled, it will start sending metrics to datadog if previously disabled
+// EnableMetric resumes sending metrics to datadog.
 func (c *Client) EnableMetric() {
-	c.Enabled = true
+	c.enabled = true
 }
 
-// Count send count metric with specified block name, with serviceName as prefix.
-// the metric will only be sent if the monitor's enabled.
+// Count sends a count metric with serviceName as prefix.
 func (c *Client) Count(blockName string, value int64, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Count(fmt.Sprintf("%s.%s", c.ServiceName, blockName), value, tags, 1)
+	if c.enabled {
+		_ = c.client.Count(c.metricName(blockName), value, tags, 1)
 	}
 }
 
-// CountError send count metric with specified block name, with serviceName as prefix and .error as suffix.
-// the metric will only be sent if the monitor's enabled.
+// CountError sends a count metric with serviceName as prefix and .error suffix.
 func (c *Client) CountError(blockName string, value int64, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Count(fmt.Sprintf("%s.%s.error", c.ServiceName, blockName), value, tags, 1)
+	if c.enabled {
+		_ = c.client.Count(c.errorMetricName(blockName), value, tags, 1)
 	}
 }
 
-// Increment send increment metric with specified block name, with serviceName as prefix.
-// the metric will only be sent if the monitor's enabled.
+// Increment sends an increment metric with serviceName as prefix.
 func (c *Client) Increment(blockName string, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Incr(fmt.Sprintf("%s.%s", c.ServiceName, blockName), tags, 1)
+	if c.enabled {
+		_ = c.client.Incr(c.metricName(blockName), tags, 1)
 	}
 }
 
-// IncrementError send increment metric with specified block name, with serviceName as prefix and .error as suffix.
-// the metric will only be sent if the monitor's enabled.
+// IncrementError sends an increment metric with serviceName as prefix and .error suffix.
 func (c *Client) IncrementError(blockName string, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Incr(fmt.Sprintf("%s.%s.error", c.ServiceName, blockName), tags, 1)
+	if c.enabled {
+		_ = c.client.Incr(c.errorMetricName(blockName), tags, 1)
 	}
 }
 
-// Decrement send decrement metric with specified metric name, with serviceName as prefix.
-// the metric will only be sent if the monitor's enabled.
+// Decrement sends a decrement metric with serviceName as prefix.
 func (c *Client) Decrement(blockName string, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Decr(fmt.Sprintf("%s.%s", c.ServiceName, blockName), tags, 1)
+	if c.enabled {
+		_ = c.client.Decr(c.metricName(blockName), tags, 1)
 	}
 }
 
-// DecrementError send decrement metric with specified metric name, with serviceName as prefix and .error as suffix.
-// the metric will only be sent if the monitor's enabled.
+// DecrementError sends a decrement metric with serviceName as prefix and .error suffix.
 func (c *Client) DecrementError(blockName string, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Decr(fmt.Sprintf("%s.%s.error", c.ServiceName, blockName), tags, 1)
+	if c.enabled {
+		_ = c.client.Decr(c.errorMetricName(blockName), tags, 1)
 	}
 }
 
-// Timing send time metric with specified metric name, with serviceName as prefix.
-// the metric will only be sent if the monitor's enabled.
+// Gauge sends a gauge metric with serviceName as prefix.
+func (c *Client) Gauge(blockName string, value float64, tags []string) {
+	if c.enabled {
+		_ = c.client.Gauge(c.metricName(blockName), value, tags, 1)
+	}
+}
+
+// GaugeError sends a gauge metric with serviceName as prefix and .error suffix.
+func (c *Client) GaugeError(blockName string, value float64, tags []string) {
+	if c.enabled {
+		_ = c.client.Gauge(c.errorMetricName(blockName), value, tags, 1)
+	}
+}
+
+// Histogram sends a histogram metric with serviceName as prefix.
+func (c *Client) Histogram(blockName string, value float64, tags []string) {
+	if c.enabled {
+		_ = c.client.Histogram(c.metricName(blockName), value, tags, 1)
+	}
+}
+
+// HistogramError sends a histogram metric with serviceName as prefix and .error suffix.
+func (c *Client) HistogramError(blockName string, value float64, tags []string) {
+	if c.enabled {
+		_ = c.client.Histogram(c.errorMetricName(blockName), value, tags, 1)
+	}
+}
+
+// Timing sends a timing metric with serviceName as prefix.
 func (c *Client) Timing(blockName string, value time.Duration, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Timing(fmt.Sprintf("%s.%s", c.ServiceName, blockName), value, tags, 1)
+	if c.enabled {
+		_ = c.client.Timing(c.metricName(blockName), value, tags, 1)
 	}
 }
 
-// TimingError send time metric with specified metric name, with serviceName as prefix and .error as suffix.
-// the metric will only be sent if the monitor's enabled.
+// TimingError sends a timing metric with serviceName as prefix and .error suffix.
 func (c *Client) TimingError(blockName string, value time.Duration, tags []string) {
-	if c.Enabled {
-		_ = c.Client.Timing(fmt.Sprintf("%s.%s.error", c.ServiceName, blockName), value, tags, 1)
+	if c.enabled {
+		_ = c.client.Timing(c.errorMetricName(blockName), value, tags, 1)
 	}
 }
